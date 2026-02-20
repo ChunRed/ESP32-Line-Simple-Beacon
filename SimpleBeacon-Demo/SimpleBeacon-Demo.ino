@@ -32,50 +32,15 @@
 #include "BLEBeacon.h"
 #include "BLEDevice.h"
 #include <Preferences.h>
-#include <WebServer.h>
-#include <WiFi.h>
 
 Preferences preferences;
 String hwid_str;
 int msg_val;
 bool configMode = false;
-WebServer server(80);
 
-void handleRoot() {
-  String html = "<html><head><meta charset='utf-8'><meta name='viewport' "
-                "content='width=device-width, initial-scale=1.0'></head><body "
-                "style='font-family: Arial, sans-serif; margin: "
-                "20px;'><h2>LINE Beacon 參數設定</h2>";
-  html += "<form action='/save' method='POST'>";
-  html += "HWID (10字元16進位): <br><input type='text' name='hwid' value='" +
-          hwid_str +
-          "' maxlength='10' style='padding: 5px; font-size: 16px; margin-top: "
-          "5px;'><br><br>";
-  html += "MSG (數字): <br><input type='number' name='msg' value='" +
-          String(msg_val) +
-          "' style='padding: 5px; font-size: 16px; margin-top: 5px;'><br><br>";
-  html += "<input type='submit' value='儲存並重啟' style='padding: 10px 20px; "
-          "font-size: 16px; margin-top: 10px; cursor: pointer;'>";
-  html += "</form></body></html>";
-  server.send(200, "text/html", html);
-}
-
-void handleSave() {
-  if (server.hasArg("hwid")) {
-    preferences.putString("hwid", server.arg("hwid"));
-  }
-  if (server.hasArg("msg")) {
-    preferences.putInt("msg", server.arg("msg").toInt());
-  }
-  server.send(200, "text/html",
-              "<html><head><meta charset='utf-8'><meta name='viewport' "
-              "content='width=device-width, initial-scale=1.0'></head><body "
-              "style='font-family: Arial, sans-serif; margin: "
-              "20px;'><h2>設定已儲存！</h2><p>設備正在重新啟動，請稍候...</p></"
-              "body></html>");
-  delay(1000);
-  ESP.restart();
-}
+// 網頁相關函式 (實作於 WebConfig.ino)
+void setupWebServer();
+void handleWebServer();
 
 /**
  * Bluetooth TX power level(index), it's just a index corresponding to
@@ -94,7 +59,7 @@ void handleSave() {
 bool isAdDataLine = true;
 BLEAdvertising *pAdvertising;
 BLEAdvertisementData adDataLine, adDataIbeacon,
-    adDataEmpty = BLEAdvertisementData();
+  adDataEmpty = BLEAdvertisementData();
 
 byte htoi(byte c) {
   if ('0' <= c && c <= '9')
@@ -142,18 +107,18 @@ BLEAdvertisementData genAdDataLine(const byte *msg, size_t msglen) {
   byte payload[14];
   size_t pos = 0;
 
-  payload[pos++] = byte(0x02); // Frame Type of the LINE Simple Beacon Frame
+  payload[pos++] = byte(0x02);  // Frame Type of the LINE Simple Beacon Frame
 
-  hexDecode(&payload[pos], hwid_str.c_str(), 5); // HWID of LINE Beacon
+  hexDecode(&payload[pos], hwid_str.c_str(), 5);  // HWID of LINE Beacon
   pos += 5;
 
   payload[pos++] =
-      byte(0x7F); // Measured TxPower of the LINE Simple Beacon Frame
+    byte(0x7F);  // Measured TxPower of the LINE Simple Beacon Frame
 
   if (msglen > 13)
     msglen = 13;
   memcpy(&payload[pos], msg,
-         msglen); // Device message of LINE Simple Beacon Frame
+         msglen);  // Device message of LINE Simple Beacon Frame
   pos += msglen;
 
   std::string strServiceData((const char *)payload, pos);
@@ -169,22 +134,22 @@ BLEAdvertisementData genAdDataLine(const byte *msg, size_t msglen) {
 BLEAdvertisementData genAdDataIbeacon() {
   byte uuid[16];
   hexDecode(uuid, "d0d2ce249efc11e582c41c6a7a17ef38",
-            16); // iBeacon UUID of LINE
+            16);  // iBeacon UUID of LINE
 
   BLEBeacon beacon = BLEBeacon();
   beacon.setManufacturerId(
-      0x4C00); // fake Apple 0x004C LSB (ENDIAN_CHANGE_U16!)
+    0x4C00);  // fake Apple 0x004C LSB (ENDIAN_CHANGE_U16!)
   beacon.setProximityUUID(BLEUUID(uuid, 16, false));
   beacon.setMajor(0x4C49);
   beacon.setMinor(0x4e45);
   BLEAdvertisementData adData = BLEAdvertisementData();
 
-  adData.setFlags(0x04); // BR_EDR_NOT_SUPPORTED 0x04
+  adData.setFlags(0x04);  // BR_EDR_NOT_SUPPORTED 0x04
 
   std::string strServiceData = "";
 
-  strServiceData += (char)26;   // Len
-  strServiceData += (char)0xFF; // Type
+  strServiceData += (char)26;    // Len
+  strServiceData += (char)0xFF;  // Type
   strServiceData += beacon.getData();
   adData.addData(strServiceData);
   return adData;
@@ -195,8 +160,8 @@ void setup() {
   Serial.begin(115200);
 
   preferences.begin("beacon", false);
-  hwid_str = preferences.getString("hwid", "018e3a1ff0"); // Default: 金草蘭
-  msg_val = preferences.getInt("msg", 3);                 // Default: 3
+  hwid_str = preferences.getString("hwid", "018e3a1ff0");  // Default: 金草蘭
+  msg_val = preferences.getInt("msg", 3);                  // Default: 3
 
   pinMode(0, INPUT_PULLUP);
 
@@ -232,27 +197,22 @@ void setup() {
 void loop() {
   if (!configMode) {
     if (digitalRead(0) == LOW) {
-      delay(50); // debounce
+      delay(50);  // debounce
       if (digitalRead(0) == LOW) {
         configMode = true;
         Serial.println("Enter Config Mode. Starting AP...");
 
         pAdvertising->stop();
 
-        WiFi.softAP("Beacon_Config");
-        Serial.print("AP IP address: ");
-        Serial.println(WiFi.softAPIP());
-
-        server.on("/", HTTP_GET, handleRoot);
-        server.on("/save", HTTP_POST, handleSave);
-        server.begin();
+        // 啟動網頁伺服器
+        setupWebServer();
         return;
       }
     }
   }
 
   if (configMode) {
-    server.handleClient();
+    handleWebServer();
   } else {
     isAdDataLine = !isAdDataLine;
     pAdvertising->setAdvertisementData(isAdDataLine ? adDataLine
