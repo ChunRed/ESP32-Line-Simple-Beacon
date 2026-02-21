@@ -42,6 +42,9 @@ bool configMode = false;
 void setupWebServer();
 void handleWebServer();
 
+// LED 控制函式 (實作於 LedControl.ino)
+void setupLEDs();
+
 /**
  * Bluetooth TX power level(index), it's just a index corresponding to
  * power(dbm).
@@ -59,7 +62,7 @@ void handleWebServer();
 bool isAdDataLine = true;
 BLEAdvertising *pAdvertising;
 BLEAdvertisementData adDataLine, adDataIbeacon,
-  adDataEmpty = BLEAdvertisementData();
+    adDataEmpty = BLEAdvertisementData();
 
 byte htoi(byte c) {
   if ('0' <= c && c <= '9')
@@ -107,18 +110,18 @@ BLEAdvertisementData genAdDataLine(const byte *msg, size_t msglen) {
   byte payload[14];
   size_t pos = 0;
 
-  payload[pos++] = byte(0x02);  // Frame Type of the LINE Simple Beacon Frame
+  payload[pos++] = byte(0x02); // Frame Type of the LINE Simple Beacon Frame
 
-  hexDecode(&payload[pos], hwid_str.c_str(), 5);  // HWID of LINE Beacon
+  hexDecode(&payload[pos], hwid_str.c_str(), 5); // HWID of LINE Beacon
   pos += 5;
 
   payload[pos++] =
-    byte(0x7F);  // Measured TxPower of the LINE Simple Beacon Frame
+      byte(0x7F); // Measured TxPower of the LINE Simple Beacon Frame
 
   if (msglen > 13)
     msglen = 13;
   memcpy(&payload[pos], msg,
-         msglen);  // Device message of LINE Simple Beacon Frame
+         msglen); // Device message of LINE Simple Beacon Frame
   pos += msglen;
 
   std::string strServiceData((const char *)payload, pos);
@@ -134,22 +137,22 @@ BLEAdvertisementData genAdDataLine(const byte *msg, size_t msglen) {
 BLEAdvertisementData genAdDataIbeacon() {
   byte uuid[16];
   hexDecode(uuid, "d0d2ce249efc11e582c41c6a7a17ef38",
-            16);  // iBeacon UUID of LINE
+            16); // iBeacon UUID of LINE
 
   BLEBeacon beacon = BLEBeacon();
   beacon.setManufacturerId(
-    0x4C00);  // fake Apple 0x004C LSB (ENDIAN_CHANGE_U16!)
+      0x4C00); // fake Apple 0x004C LSB (ENDIAN_CHANGE_U16!)
   beacon.setProximityUUID(BLEUUID(uuid, 16, false));
   beacon.setMajor(0x4C49);
   beacon.setMinor(0x4e45);
   BLEAdvertisementData adData = BLEAdvertisementData();
 
-  adData.setFlags(0x04);  // BR_EDR_NOT_SUPPORTED 0x04
+  adData.setFlags(0x04); // BR_EDR_NOT_SUPPORTED 0x04
 
   std::string strServiceData = "";
 
-  strServiceData += (char)26;    // Len
-  strServiceData += (char)0xFF;  // Type
+  strServiceData += (char)26;   // Len
+  strServiceData += (char)0xFF; // Type
   strServiceData += beacon.getData();
   adData.addData(strServiceData);
   return adData;
@@ -159,9 +162,12 @@ void setup() {
   // init
   Serial.begin(115200);
 
+  // 初始化並點亮 LED (維持常亮全白)
+  setupLEDs();
+
   preferences.begin("beacon", false);
-  hwid_str = preferences.getString("hwid", "018e3a1ff0");  // Default: 金草蘭
-  msg_val = preferences.getInt("msg", 3);                  // Default: 3
+  hwid_str = preferences.getString("hwid", "018e3a1ff0"); // Default: 金草蘭
+  msg_val = preferences.getInt("msg", 3);                 // Default: 3
 
   pinMode(0, INPUT_PULLUP);
 
@@ -197,7 +203,7 @@ void setup() {
 void loop() {
   if (!configMode) {
     if (digitalRead(0) == LOW) {
-      delay(50);  // debounce
+      delay(50); // debounce
       if (digitalRead(0) == LOW) {
         configMode = true;
         Serial.println("Enter Config Mode. Starting AP...");
